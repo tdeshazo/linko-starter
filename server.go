@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -13,22 +14,24 @@ import (
 
 type server struct {
 	httpServer *http.Server
+	logger     *log.Logger
 	store      store.Store
 	cancel     context.CancelFunc
 }
 
-func newServer(store store.Store, port int, cancel context.CancelFunc) *server {
+func newServer(store store.Store, port int, cancel context.CancelFunc, logger *log.Logger) *server {
 	mux := http.NewServeMux()
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+		Handler: requestLogger(logger)(mux),
 	}
 
 	s := &server{
 		httpServer: srv,
 		store:      store,
 		cancel:     cancel,
+		logger:     logger,
 	}
 
 	mux.HandleFunc("GET /", s.handlerIndex)
@@ -47,9 +50,14 @@ func (s *server) start() error {
 	if err != nil {
 		return err
 	}
+	addr := ln.Addr()
+	if a, ok := addr.(*net.TCPAddr); ok {
+		s.logger.Printf("Linko is running on http://localhost:%d\n", a.Port)
+	}
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	s.logger.Println("Linko is shutting down")
 	return nil
 }
 

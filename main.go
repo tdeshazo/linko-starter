@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -15,7 +16,7 @@ import (
 )
 
 const port int = 8899
-const accessLogDir string = "linko.access.log"
+const logBufferSize int = 8192
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -38,7 +39,8 @@ func getLogger(logEnvVar string) (*log.Logger, error) {
 	if err != nil {
 		return nil, err
 	}
-	multiwriter := io.MultiWriter(os.Stderr, f)
+	bufferedFile := bufio.NewWriterSize(f, 8192)
+	multiwriter := io.MultiWriter(os.Stderr, bufferedFile)
 	return log.New(multiwriter, "", log.LstdFlags), nil
 }
 

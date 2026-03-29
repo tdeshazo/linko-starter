@@ -18,6 +18,8 @@ import (
 const port int = 8899
 const logBufferSize int = 8192
 
+type closeFunc func() error
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
@@ -30,27 +32,38 @@ func main() {
 	os.Exit(status)
 }
 
-func getLogger(logEnvVar string) (*log.Logger, error) {
+func getLogger(logEnvVar string) (*log.Logger, closeFunc, error) {
 	logFile, ok := os.LookupEnv(logEnvVar)
 	if !ok {
-		return log.New(os.Stderr, "", log.LstdFlags), nil
+		return log.New(os.Stderr, "", log.LstdFlags), func() error { return nil }, nil
 	}
 	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, err
+		return nil, func() error { return nil }, err
 	}
 	bufferedFile := bufio.NewWriterSize(f, 8192)
 	multiwriter := io.MultiWriter(os.Stderr, bufferedFile)
-	return log.New(multiwriter, "", log.LstdFlags), nil
+
+	close := func() error {
+		return bufferedFile.Flush()
+	}
+	return log.New(multiwriter, "", log.LstdFlags), close, nil
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
 
-	logger, err := getLogger("LINKO_LOG_FILE")
+	logger, closeFunc, err := getLogger("LINKO_LOG_FILE")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
 	}
+
+	defer func() {
+		if err := closeFunc(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to flush log buffer: %v\n", err)
+		}
+		return
+	}()
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
